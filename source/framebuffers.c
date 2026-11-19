@@ -1070,17 +1070,60 @@ void vglTexImageDepthBuffer(GLenum target) {
 
 	switch (target) {
 	case GL_TEXTURE_2D: {
+		SceGxmDepthStencilSurface *surf;
+		int w, h;
 		if (active_read_fb) {
-			SceGxmDepthStencilSurface *surf = &active_read_fb->depthbuffer;
-			sceGxmTextureInitLinear(&tex->gxm_tex, surf->depthData, SCE_GXM_TEXTURE_FORMAT_DF32M, active_read_fb->width, active_read_fb->height, 0);
+			// The depth buffer of a framebuffer is allocated at its first scene, and a multisampled one isn't a plain image
+			if (!(active_read_fb->depthbuffer_state & DEPTHBUFFER_READY) || VGL_FRAMEBUFFER_MSAA(active_read_fb) != SCE_GXM_MULTISAMPLE_NONE) {
+				SET_GL_ERROR(GL_INVALID_OPERATION)
+			}
+			surf = &active_read_fb->depthbuffer;
+			w = active_read_fb->width;
+			h = active_read_fb->height;
 		} else {
-			sceGxmTextureInitLinear(&tex->gxm_tex, gxm_depth_stencil_surface.depthData, SCE_GXM_TEXTURE_FORMAT_DF32M, DISPLAY_WIDTH, DISPLAY_HEIGHT, 0);
+			surf = &gxm_depth_stencil_surface;
+			w = DISPLAY_WIDTH;
+			h = DISPLAY_HEIGHT;
+		}
+		// Depth surfaces are SCE_GXM_TILE_SIZEX aligned, linear textures only 8 pixels aligned
+		uint32_t depth_stride = VGL_ALIGN(w, SCE_GXM_TILE_SIZEX);
+		if (depth_stride != VGL_ALIGN(w, 8)) {
+			sceGxmTextureInitLinearStrided(&tex->gxm_tex, surf->depthData, SCE_GXM_TEXTURE_FORMAT_DF32M, w, h, depth_stride * 4);
+		} else {
+			sceGxmTextureInitLinear(&tex->gxm_tex, surf->depthData, SCE_GXM_TEXTURE_FORMAT_DF32M, w, h, 0);
 		}
 		tex->status = TEX_VALID;
 	} break;
 	default:
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
 	}
+}
+
+GLboolean vglGetFramebufferDepthStencilDataATV(GLuint id, void **depth, void **stencil, GLsizei *stride) {
+	SceGxmDepthStencilSurface *surf;
+	int w;
+	if (id) {
+		framebuffer *fb = (framebuffer *)id;
+		// The depth buffer of a framebuffer is allocated at its first scene
+		if (!(fb->depthbuffer_state & DEPTHBUFFER_READY) || VGL_FRAMEBUFFER_MSAA(fb) != SCE_GXM_MULTISAMPLE_NONE) {
+			return GL_FALSE;
+		}
+		surf = &fb->depthbuffer;
+		w = fb->width;
+	} else {
+		surf = &gxm_depth_stencil_surface;
+		w = DISPLAY_WIDTH;
+	}
+	if (depth) {
+		*depth = surf->depthData;
+	}
+	if (stencil) {
+		*stencil = surf->stencilData;
+	}
+	if (stride) {
+		*stride = VGL_ALIGN(w, SCE_GXM_TILE_SIZEX);
+	}
+	return surf->depthData ? GL_TRUE : GL_FALSE;
 }
 
 void vglSetFramebufferStoreLoadMode(GLuint id, GLboolean store, GLboolean load) {

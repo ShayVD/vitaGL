@@ -1268,6 +1268,7 @@ void vglSetDisplayCallback(void (*cb)(void *framebuf));
 void vglSetFragmentBufferSize(uint32_t size);
 
 // Sets force load/store modes for the underlying depthstencil surfaces for a given framebuffer. Default values: GL_FALSE, GL_FALSE.
+// ATV2 fork: a framebuffer's depth / stencil buffer allocated with load set (set it before the framebuffer's first scene) starts as depth 0 with the mask update bit set and stencil 0.
 void vglSetFramebufferStoreLoadMode(GLuint id, GLboolean store, GLboolean load);
 
 // Setup the parameter buffer size of sceGxm. Must be called before vglInit*. Default value: SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE.
@@ -1324,8 +1325,16 @@ void vglSwapBuffers(GLboolean has_commondialog);
 // Enqueue a request for display resolution change that will happen at next vglSwapBuffers call.
 GLboolean vglSwapResolution(int width, int height);
 
-// Loads the depth buffer of the currently bound renderbuffer into the currently bound GL texture.
+// Points the currently bound GL_TEXTURE_2D at the depth buffer of the read framebuffer (or of the display when 0 is bound), as a SCE_GXM_TEXTURE_FORMAT_DF32M texture
+// (no copy: the texture aliases the depth memory). The framebuffer must have drawn a scene (its depth buffer is allocated then) and must not be multisampled, else
+// GL_INVALID_OPERATION. The depth reaches memory only from scenes that store it: see vglSetFramebufferStoreLoadMode.
 void vglTexImageDepthBuffer(GLenum target);
+
+// ATV2 fork: returns the depth (DF32M, one 32 bit word a pixel) and stencil (S8, one byte a pixel, NULL without stencil) memory of a framebuffer (0 the display) and
+// its row pitch in pixels. GL_FALSE before the framebuffer's first scene (its depth buffer is allocated then) or for a multisampled one. CPU writes there reach
+// the GPU only through a force loaded scene (vglSetFramebufferStoreLoadMode), and only when no submitted scene still uses the surface (glFinish).
+GLboolean vglGetFramebufferDepthStencilDataATV(GLuint id, void **depth, void **stencil, GLsizei *stride);
+#define VGL_ATV_DEPTH 1 // ATV2 fork: vglGetFramebufferDepthStencilDataATV, well defined force loaded depth / stencil (vglSetFramebufferStoreLoadMode), strided vglTexImageDepthBuffer
 
 // Makes vitaGL use cached memory instead of uncached memory for its internal memory pools. Must be called before vglInit*.
 void vglUseCachedMem(GLboolean use);
