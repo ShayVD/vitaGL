@@ -525,7 +525,7 @@ void init_display_color_surfaces(GLboolean is_swap) {
 	}
 }
 
-static void init_depth_stencil_buffer(uint32_t w, uint32_t h, SceGxmDepthStencilSurface *surface, GLboolean has_stencil, SceGxmMultisampleMode samples) {
+static void init_depth_stencil_buffer(uint32_t w, uint32_t h, SceGxmDepthStencilSurface *surface, GLboolean has_stencil, SceGxmMultisampleMode samples, GLboolean loaded) {
 	// Calculating sizes for depth and stencil surfaces
 	unsigned int depth_stencil_width = VGL_ALIGN(w, SCE_GXM_TILE_SIZEX);
 #ifndef DEPTH_STENCIL_HACK
@@ -541,14 +541,20 @@ static void init_depth_stencil_buffer(uint32_t w, uint32_t h, SceGxmDepthStencil
 	void *depth_buffer = gpu_alloc_mapped_aligned_for_gpu(SCE_GXM_DEPTHSTENCIL_SURFACE_ALIGNMENT, 4 * depth_stencil_samples);
 
 #ifdef STORE_DEPTH_STENCIL
-	// Initializing mask update bit to 1
-	vgl_memset(depth_buffer, 0x80, 4 * depth_stencil_samples);
+	loaded = GL_TRUE;
 #endif
+	if (loaded) {
+		// A force loaded surface is read from memory at the first scene: initializing mask update bit to 1
+		vgl_memset(depth_buffer, 0x80, 4 * depth_stencil_samples);
+	}
 #endif
 
 	// Allocating stencil surface
 #ifndef DEPTH_STENCIL_HACK
 	void *stencil_buffer = has_stencil ? gpu_alloc_mapped_aligned_for_gpu(SCE_GXM_DEPTHSTENCIL_SURFACE_ALIGNMENT, depth_stencil_samples) : NULL;
+	if (loaded && stencil_buffer) {
+		vgl_memset(stencil_buffer, 0, depth_stencil_samples);
+	}
 #endif
 
 	// Initializing depth and stencil surfaces
@@ -569,7 +575,7 @@ static void init_depth_stencil_buffer(uint32_t w, uint32_t h, SceGxmDepthStencil
 }
 
 void init_display_depth_stencil_surfaces(void) {
-	init_depth_stencil_buffer(DISPLAY_WIDTH, DISPLAY_HEIGHT, &gxm_depth_stencil_surface, GL_TRUE, msaa_mode);
+	init_depth_stencil_buffer(DISPLAY_WIDTH, DISPLAY_HEIGHT, &gxm_depth_stencil_surface, GL_TRUE, msaa_mode, GL_FALSE);
 }
 
 void start_shader_patcher(void) {
@@ -693,7 +699,7 @@ void scene_reset(void) {
 			
 			// If the depthbuffer is dirty, we re-gen it
 			if (!(active_write_fb->depthbuffer_state & DEPTHBUFFER_READY)) {
-				init_depth_stencil_buffer(active_write_fb->width, active_write_fb->height, &active_write_fb->depthbuffer, active_write_fb->depthbuffer_state & DEPTHBUFFER_WANTS_STENCIL, VGL_FRAMEBUFFER_MSAA(active_write_fb));
+				init_depth_stencil_buffer(active_write_fb->width, active_write_fb->height, &active_write_fb->depthbuffer, active_write_fb->depthbuffer_state & DEPTHBUFFER_WANTS_STENCIL, VGL_FRAMEBUFFER_MSAA(active_write_fb), (active_write_fb->depthbuffer_state & DEPTHBUFFER_WANTS_LOAD) ? GL_TRUE : GL_FALSE);
 #ifndef STORE_DEPTH_STENCIL
 				vglDepthStencilSurfaceSetForceStoreLoadMode(&active_write_fb->depthbuffer, active_write_fb->depthbuffer_state & DEPTHBUFFER_WANTS_STORE, active_write_fb->depthbuffer_state & DEPTHBUFFER_WANTS_LOAD);
 #endif
@@ -765,7 +771,8 @@ void scene_reset(void) {
 		}
 #else
 		dirty_scissor_state = GL_TRUE;
-		skip_scissor_invalidation = GL_TRUE;
+		// A force loaded depth surface brings back the mask update bits of its last stored scene, so the invalidation pass can't be skipped
+		skip_scissor_invalidation = !vglDepthStencilSurfaceIsForceLoaded(is_rendering_display ? &gxm_depth_stencil_surface : &active_write_fb->depthbuffer);
 #endif
 	}
 	

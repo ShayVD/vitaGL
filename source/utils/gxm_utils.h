@@ -186,4 +186,8 @@ static inline __attribute__((always_inline)) void vglDepthStencilSurfaceSetForce
 	uint32_t *s = (uint32_t *)surface;
 	*s = (store ? 4 : 0) | (load ? 2 : 0) | *s & 0xFFFFFFF9;
 }
+static inline __attribute__((always_inline)) uint8_t vglDepthStencilSurfaceIsForceLoaded(const SceGxmDepthStencilSurface *surface) {
+	const uint32_t *s = (const uint32_t *)surface;
+	return (*s & 2) ? 1 : 0;
+}
 #endif
